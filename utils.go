@@ -35,6 +35,14 @@ func AssociateTemplate(base *template.Template, content *template.Template) (*te
 	return base, nil
 }
 
+func hasExt(path, ext string) bool {
+	if ext == "" {
+		return true
+	}
+
+	return strings.HasSuffix(strings.ToLower(path), strings.ToLower(ext))
+}
+
 func stripExt(path string) string {
 	ext := filepath.Ext(path)
 	if ext == "" {

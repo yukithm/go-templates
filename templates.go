@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Templates holds layouts, contents and partials templates separately.
@@ -64,15 +63,12 @@ func (t *Templates) AddLayout(name, buf string) error {
 }
 
 func (t *Templates) AddLayoutFile(file string) error {
-	if !t.isTemplateFile(file) {
-		return nil
-	}
 	return addFile(t.LayoutsDir, file, t.StripExt, t.AddLayout)
 }
 
 func (t *Templates) LoadLayouts() error {
 	ignores := []string{t.ViewsDir, t.PartialsDir}
-	return loadTemplates(t.LayoutsDir, ignores, t.AddLayoutFile)
+	return loadTemplates(t.LayoutsDir, ignores, t.TemplateExt, t.AddLayoutFile)
 }
 
 func (t *Templates) AddView(name, buf string) error {
@@ -90,15 +86,12 @@ func (t *Templates) AddView(name, buf string) error {
 }
 
 func (t *Templates) AddViewFile(file string) error {
-	if !t.isTemplateFile(file) {
-		return nil
-	}
 	return addFile(t.ViewsDir, file, t.StripExt, t.AddView)
 }
 
 func (t *Templates) LoadViews() error {
 	ignores := []string{t.LayoutsDir, t.PartialsDir}
-	return loadTemplates(t.ViewsDir, ignores, t.AddViewFile)
+	return loadTemplates(t.ViewsDir, ignores, t.TemplateExt, t.AddViewFile)
 }
 
 func (t *Templates) AddPartial(name, buf string) error {
@@ -114,15 +107,12 @@ func (t *Templates) AddPartial(name, buf string) error {
 }
 
 func (t *Templates) AddPartialFile(file string) error {
-	if !t.isTemplateFile(file) {
-		return nil
-	}
 	return addFile(t.PartialsDir, file, t.StripExt, t.AddPartial)
 }
 
 func (t *Templates) LoadPartials() error {
 	ignores := []string{t.LayoutsDir, t.ViewsDir}
-	return loadTemplates(t.PartialsDir, ignores, t.AddPartialFile)
+	return loadTemplates(t.PartialsDir, ignores, t.TemplateExt, t.AddPartialFile)
 }
 
 func (t *Templates) newTemplate(tmpl *template.Template, name string) *template.Template {
@@ -156,7 +146,7 @@ func addFile(dir, file string, strip bool, addFunc func(name, buf string) error)
 	return addFunc(name, string(buf))
 }
 
-func loadTemplates(dir string, ignoreDirs []string, addFileFunc func(rel string) error) error {
+func loadTemplates(dir string, ignoreDirs []string, ext string, addFileFunc func(rel string) error) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -168,20 +158,16 @@ func loadTemplates(dir string, ignoreDirs []string, addFileFunc func(rel string)
 			return nil
 		}
 
+		if ext != "" && !hasExt(path, ext) {
+			return nil
+		}
+
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
 		return addFileFunc(rel)
 	})
-}
-
-func (t *Templates) isTemplateFile(name string) bool {
-	if t.TemplateExt == "" {
-		return true
-	}
-
-	return strings.HasSuffix(strings.ToLower(name), strings.ToLower(t.TemplateExt))
 }
 
 func (t *Templates) Execute(w io.Writer, layout, view string, data interface{}) error {
