@@ -2,6 +2,7 @@ package templates
 
 import (
 	"html/template"
+	"os"
 	"path/filepath"
 	"strings"
 	"text/template/parse"
@@ -59,4 +60,20 @@ func containsPath(path string, list []string) bool {
 		}
 	}
 	return false
+}
+
+func findFile(dir, name, ext string) (path string, ok bool) {
+	path = filepath.Join(dir, name)
+	if _, err := os.Stat(path); err == nil {
+		return path, true
+	}
+
+	if ext != "" {
+		path = filepath.Join(dir, name+ext)
+		if _, err := os.Stat(path); err == nil {
+			return path, true
+		}
+	}
+
+	return "", false
 }
