@@ -42,3 +42,13 @@ func stripExt(path string) string {
 	}
 	return strings.TrimSuffix(path, ext)
 }
+
+func containsPath(path string, list []string) bool {
+	cpath := filepath.Clean(path)
+	for _, p := range list {
+		if cpath == filepath.Clean(p) {
+			return true
+		}
+	}
+	return false
+}

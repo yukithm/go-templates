@@ -71,7 +71,8 @@ func (t *Templates) AddLayoutFile(file string) error {
 }
 
 func (t *Templates) LoadLayouts() error {
-	return loadTemplates(t.LayoutsDir, t.AddLayoutFile)
+	ignores := []string{t.ViewsDir, t.PartialsDir}
+	return loadTemplates(t.LayoutsDir, ignores, t.AddLayoutFile)
 }
 
 func (t *Templates) AddView(name, buf string) error {
@@ -96,7 +97,8 @@ func (t *Templates) AddViewFile(file string) error {
 }
 
 func (t *Templates) LoadViews() error {
-	return loadTemplates(t.ViewsDir, t.AddViewFile)
+	ignores := []string{t.LayoutsDir, t.PartialsDir}
+	return loadTemplates(t.ViewsDir, ignores, t.AddViewFile)
 }
 
 func (t *Templates) AddPartial(name, buf string) error {
@@ -119,7 +121,8 @@ func (t *Templates) AddPartialFile(file string) error {
 }
 
 func (t *Templates) LoadPartials() error {
-	return loadTemplates(t.PartialsDir, t.AddPartialFile)
+	ignores := []string{t.LayoutsDir, t.ViewsDir}
+	return loadTemplates(t.PartialsDir, ignores, t.AddPartialFile)
 }
 
 func (t *Templates) newTemplate(tmpl *template.Template, name string) *template.Template {
@@ -153,12 +156,15 @@ func addFile(dir, file string, strip bool, addFunc func(name, buf string) error)
 	return addFunc(name, string(buf))
 }
 
-func loadTemplates(dir string, addFileFunc func(rel string) error) error {
+func loadTemplates(dir string, ignoreDirs []string, addFileFunc func(rel string) error) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
+			if ignoreDirs != nil && containsPath(path, ignoreDirs) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
