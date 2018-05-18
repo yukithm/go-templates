@@ -38,10 +38,26 @@ func AssociateTemplate(base *template.Template, content *template.Template) (*te
 
 func hasExt(path, ext string) bool {
 	if ext == "" {
-		return true
+		return false
 	}
 
 	return strings.HasSuffix(strings.ToLower(path), strings.ToLower(ext))
+}
+
+func hasAnyExt(path string, exts []string) bool {
+	if exts == nil || len(exts) == 0 {
+		return false
+	}
+
+	lpath := strings.ToLower(path)
+	for _, ext := range exts {
+		ext = strings.ToLower(ext)
+		if strings.HasSuffix(lpath, ext) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func stripExt(path string) string {
@@ -76,4 +92,25 @@ func findFile(dir, name, ext string) (path string, ok bool) {
 	}
 
 	return "", false
+}
+
+func walkDir(dir string, ignores []string, exts []string, wf filepath.WalkFunc) error {
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return wf(path, info, err)
+		}
+
+		if info.IsDir() {
+			if ignores != nil && containsPath(path, ignores) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if exts != nil && !hasAnyExt(path, exts) {
+			return nil
+		}
+
+		return wf(path, info, err)
+	})
 }

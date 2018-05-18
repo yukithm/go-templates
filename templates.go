@@ -7,112 +7,108 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Templates holds layouts, contents and partials templates separately.
 type Templates struct {
 	LayoutsDir  string
-	ViewsDir    string
+	ContentsDir string
 	PartialsDir string
-	TemplateExt string
-	StripExt    bool
 	LeftDelim   string
 	RightDelim  string
 	Options     []string
 	Funcs       template.FuncMap
-
-	layouts  map[string]*template.Template
-	views    map[string]*template.Template
-	partials *template.Template
 }
 
-func (t *Templates) Load() error {
-	if t.LayoutsDir != "" {
-		if err := t.LoadLayouts(); err != nil {
+func (t *Templates) Execute(w io.Writer, name string, data interface{}) error {
+	layout, contents := t.parseName(name)
+
+	var tmpl *template.Template
+	if layout != "" {
+		lt, err := t.load(t.LayoutsDir, layout, nil)
+		if err != nil {
+			return err
+		}
+		tmpl = lt
+	}
+
+	for _, content := range contents {
+		_, err := t.load(t.ContentsDir, content, tmpl)
+		if err != nil {
 			return err
 		}
 	}
 
-	if t.ViewsDir != "" {
-		if err := t.LoadViews(); err != nil {
-			return err
+	names := RequiredTemplates(tmpl)
+	for _, name := range names {
+		c := tmpl.Lookup(name)
+		if c == nil {
+			t.load(t.PartialsDir, name, tmpl)
 		}
 	}
 
-	if t.PartialsDir != "" {
-		if err := t.LoadPartials(); err != nil {
+	return tmpl.Execute(w, data)
+}
+
+func (t *Templates) load(dir, name string, tmpl *template.Template) (*template.Template, error) {
+	d := Dir{
+		Path: dir,
+	}
+
+	path, found := d.FindFile(name)
+	if !found {
+		return tmpl, fmt.Errorf("Templates: %s not found", filepath.Join(dir, name))
+	}
+
+	buf, err := ioutil.ReadFile(path)
+	if err != nil {
+		return tmpl, err
+	}
+
+	nt := t.newTemplate(tmpl, name)
+	if tmpl == nil {
+		tmpl = nt
+	}
+	if _, err := nt.Parse(string(buf)); err != nil {
+		return tmpl, err
+	}
+
+	return tmpl, nil
+}
+
+func (t *Templates) loadAll(dir string, ignores []string, tmpl *template.Template) (*template.Template, error) {
+	d := Dir{
+		Path:        dir,
+		ExcludeDirs: ignores,
+	}
+
+	err := d.Walk(func(path string, info os.FileInfo, err error) error {
+		if err != nil {
 			return err
 		}
-	}
 
-	return nil
-}
+		buf, err := ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
 
-func (t *Templates) AddLayout(name, buf string) error {
-	if t.layouts == nil {
-		t.layouts = make(map[string]*template.Template)
-	}
+		name, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
 
-	tmpl, err := t.newTemplate(nil, name).Parse(buf)
-	if err != nil {
-		return err
-	}
-	t.layouts[name] = tmpl
+		nt := t.newTemplate(tmpl, name)
+		if tmpl == nil {
+			tmpl = nt
+		}
+		if _, err := nt.Parse(string(buf)); err != nil {
+			return err
+		}
 
-	return nil
-}
+		return nil
+	})
 
-func (t *Templates) AddLayoutFile(file string) error {
-	return addFile(t.LayoutsDir, file, t.StripExt, t.AddLayout)
-}
-
-func (t *Templates) LoadLayouts() error {
-	ignores := []string{t.ViewsDir, t.PartialsDir}
-	return loadTemplates(t.LayoutsDir, ignores, t.TemplateExt, t.AddLayoutFile)
-}
-
-func (t *Templates) AddView(name, buf string) error {
-	if t.views == nil {
-		t.views = make(map[string]*template.Template)
-	}
-
-	tmpl, err := t.newTemplate(nil, name).Parse(buf)
-	if err != nil {
-		return err
-	}
-	t.views[name] = tmpl
-
-	return nil
-}
-
-func (t *Templates) AddViewFile(file string) error {
-	return addFile(t.ViewsDir, file, t.StripExt, t.AddView)
-}
-
-func (t *Templates) LoadViews() error {
-	ignores := []string{t.LayoutsDir, t.PartialsDir}
-	return loadTemplates(t.ViewsDir, ignores, t.TemplateExt, t.AddViewFile)
-}
-
-func (t *Templates) AddPartial(name, buf string) error {
-	tmpl, err := t.newTemplate(t.partials, name).Parse(buf)
-	if err != nil {
-		return err
-	}
-	if t.partials == nil {
-		t.partials = tmpl
-	}
-
-	return nil
-}
-
-func (t *Templates) AddPartialFile(file string) error {
-	return addFile(t.PartialsDir, file, t.StripExt, t.AddPartial)
-}
-
-func (t *Templates) LoadPartials() error {
-	ignores := []string{t.LayoutsDir, t.ViewsDir}
-	return loadTemplates(t.PartialsDir, ignores, t.TemplateExt, t.AddPartialFile)
+	return tmpl, err
 }
 
 func (t *Templates) newTemplate(tmpl *template.Template, name string) *template.Template {
@@ -131,71 +127,21 @@ func (t *Templates) newTemplate(tmpl *template.Template, name string) *template.
 	return nt
 }
 
-func addFile(dir, file string, strip bool, addFunc func(name, buf string) error) error {
-	path := filepath.Join(dir, file)
-	buf, err := ioutil.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	name := file
-	if strip {
-		name = stripExt(file)
-	}
-
-	return addFunc(name, string(buf))
-}
-
-func loadTemplates(dir string, ignoreDirs []string, ext string, addFileFunc func(rel string) error) error {
-	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			if ignoreDirs != nil && containsPath(path, ignoreDirs) {
-				return filepath.SkipDir
+func (t *Templates) parseName(name string) (string, []string) {
+	var layout string
+	contents := make([]string, 0)
+	for _, part := range strings.Split(name, ",") {
+		part := strings.TrimSpace(part)
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) == 2 {
+			switch strings.ToLower(kv[0]) {
+			case "layout":
+				layout = kv[1]
 			}
-			return nil
-		}
-
-		if ext != "" && !hasExt(path, ext) {
-			return nil
-		}
-
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		return addFileFunc(rel)
-	})
-}
-
-func (t *Templates) Execute(w io.Writer, layout, view string, data interface{}) error {
-	lt := t.layouts[layout]
-	if lt == nil {
-		return fmt.Errorf("Templates: layout not found: %s", layout)
-	}
-	vt := t.views[view]
-	if vt == nil {
-		return fmt.Errorf("Templates: view not found: %s", view)
-	}
-
-	tmpl, err := lt.Clone()
-	if err != nil {
-		return err
-	}
-	if _, err := AssociateTemplate(tmpl, vt); err != nil {
-		return err
-	}
-	if t.partials != nil {
-		if _, err := AssociateTemplate(tmpl, t.partials); err != nil {
-			return err
+		} else {
+			contents = append(contents, part)
 		}
 	}
 
-	if t.Options != nil {
-		tmpl.Option(t.Options...)
-	}
-
-	return tmpl.Execute(w, data)
+	return layout, contents
 }
