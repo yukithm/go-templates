@@ -1,19 +1,22 @@
 package templates
 
 import (
-	"fmt"
 	"html/template"
 	"io"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"strings"
 )
 
+type files struct {
+	base     string
+	noBase   bool
+	partials []string
+}
+
 type Templates struct {
-	LayoutsDir  string
-	ContentsDir string
-	PartialsDir string
+	Dir         string
+	DefaultBase string
 	LeftDelim   string
 	RightDelim  string
 	Options     []string
@@ -21,21 +24,32 @@ type Templates struct {
 }
 
 func (t *Templates) Execute(w io.Writer, name string, data interface{}) error {
-	layout, contents := t.parseName(name)
+	tmpl, err := t.Template(name)
+	if err != nil {
+		return err
+	}
+	return tmpl.Execute(w, data)
+}
 
-	var tmpl *template.Template
-	if layout != "" {
-		lt, err := t.load(t.LayoutsDir, layout, nil)
-		if err != nil {
-			return err
-		}
-		tmpl = lt
+func (t *Templates) Template(name string) (*template.Template, error) {
+	f := t.parseName(name)
+	if f.base == "" && !f.noBase {
+		f.base = t.DefaultBase
 	}
 
-	for _, content := range contents {
-		_, err := t.load(t.ContentsDir, content, tmpl)
+	var tmpl *template.Template
+	if !f.noBase && f.base != "" {
+		bt, err := t.load(nil, f.base)
 		if err != nil {
-			return err
+			return nil, err
+		}
+		tmpl = bt
+	}
+
+	for _, partial := range f.partials {
+		_, err := t.load(tmpl, partial)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -43,23 +57,42 @@ func (t *Templates) Execute(w io.Writer, name string, data interface{}) error {
 	for _, name := range names {
 		c := tmpl.Lookup(name)
 		if c == nil {
-			t.load(t.PartialsDir, name, tmpl)
+			t.load(tmpl, name)
 		}
 	}
 
-	return tmpl.Execute(w, data)
+	if t.Options != nil && len(t.Options) > 0 {
+		tmpl.Option(t.Options...)
+	}
+
+	return tmpl, nil
 }
 
-func (t *Templates) load(dir, name string, tmpl *template.Template) (*template.Template, error) {
-	d := Dir{
-		Path: dir,
+func (t *Templates) parseName(name string) *files {
+	var f files
+	f.partials = make([]string, 0)
+
+	for _, part := range strings.Split(name, ",") {
+		part := strings.TrimSpace(part)
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) == 2 {
+			switch strings.ToLower(kv[0]) {
+			case "base":
+				f.base = kv[1]
+				if kv[1] == "" {
+					f.noBase = true
+				}
+			}
+		} else {
+			f.partials = append(f.partials, part)
+		}
 	}
 
-	path, found := d.FindFile(name)
-	if !found {
-		return tmpl, fmt.Errorf("Templates: %s not found", filepath.Join(dir, name))
-	}
+	return &f
+}
 
+func (t *Templates) load(tmpl *template.Template, name string) (*template.Template, error) {
+	path := filepath.Clean(filepath.Join(t.Dir, name))
 	buf, err := ioutil.ReadFile(path)
 	if err != nil {
 		return tmpl, err
@@ -76,41 +109,6 @@ func (t *Templates) load(dir, name string, tmpl *template.Template) (*template.T
 	return tmpl, nil
 }
 
-func (t *Templates) loadAll(dir string, ignores []string, tmpl *template.Template) (*template.Template, error) {
-	d := Dir{
-		Path:        dir,
-		ExcludeDirs: ignores,
-	}
-
-	err := d.Walk(func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		name, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-
-		nt := t.newTemplate(tmpl, name)
-		if tmpl == nil {
-			tmpl = nt
-		}
-		if _, err := nt.Parse(string(buf)); err != nil {
-			return err
-		}
-
-		return nil
-	})
-
-	return tmpl, err
-}
-
 func (t *Templates) newTemplate(tmpl *template.Template, name string) *template.Template {
 	var nt *template.Template
 	if tmpl == nil {
@@ -125,23 +123,4 @@ func (t *Templates) newTemplate(tmpl *template.Template, name string) *template.
 	}
 
 	return nt
-}
-
-func (t *Templates) parseName(name string) (string, []string) {
-	var layout string
-	contents := make([]string, 0)
-	for _, part := range strings.Split(name, ",") {
-		part := strings.TrimSpace(part)
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) == 2 {
-			switch strings.ToLower(kv[0]) {
-			case "layout":
-				layout = kv[1]
-			}
-		} else {
-			contents = append(contents, part)
-		}
-	}
-
-	return layout, contents
 }

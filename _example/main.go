@@ -7,48 +7,24 @@ import (
 )
 
 func main() {
-	dynamic()
+	template()
 }
 
 func template() {
 	tmpls := &templates.Templates{
-		LayoutsDir:  "./layouts",
-		ViewsDir:    "./views",
-		PartialsDir: "./partials",
-		TemplateExt: ".tmpl",
-		StripExt:    true,
-	}
-	if err := tmpls.Load(); err != nil {
-		panic(err)
+		Dir:         "./",
+		DefaultBase: "layouts/layout1.tmpl",
 	}
 
 	data := struct {
-		Name string
+		Title string
+		Name  string
 	}{
-		Name: "Alice",
+		Title: "Profile",
+		Name:  "Alice",
 	}
 
-	if err := tmpls.Execute(os.Stdout, os.Args[1], os.Args[2], data); err != nil {
-		panic(err)
-	}
-}
-
-func dynamic() {
-	tmpls := &templates.DynamicTemplates{
-		LayoutsDir:  "./layouts",
-		ViewsDir:    "./views",
-		PartialsDir: "./partials",
-		TemplateExt: ".tmpl",
-		StripExt:    true,
-	}
-
-	data := struct {
-		Name string
-	}{
-		Name: "Alice",
-	}
-
-	if err := tmpls.Execute(os.Stdout, os.Args[1], os.Args[2], data); err != nil {
+	if err := tmpls.Execute(os.Stdout, os.Args[1], data); err != nil {
 		panic(err)
 	}
 }
